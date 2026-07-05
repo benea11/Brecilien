@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Runtime data (not part of the app itself)
+backend/.cache/
+backend/.projects/
+
+# Node / frontend
+node_modules/
+dist/
+*.local
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+
+# Local agent config
+.claude/

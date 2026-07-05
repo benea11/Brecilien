@@ -1,0 +1,159 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; }
+  #map { position: absolute; inset: 0; }
+  .node-label {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+  }
+  .node-shape { box-sizing: border-box; }
+  .node-text {
+    font: 600 11px 'JetBrains Mono', monospace; color: #211f1a; letter-spacing: 0.04em;
+    text-shadow: 0 0 3px #fbfaf7, 0 0 3px #fbfaf7, 0 0 3px #fbfaf7, 0 0 3px #fbfaf7;
+    white-space: nowrap;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// REPORT_DATA is substituted server-side with a JSON blob (see render.py) --
+// it is injected as a JS literal via json.dumps + a controlled placeholder,
+// not string-formatted into the page, so there is no HTML-escaping concern.
+const DATA = REPORT_DATA_PLACEHOLDER;
+
+const TYPE_COLOR = { sink: "#16756c", relay: "#211f1a", leaf: "#5b574d" };
+const UNASSIGNED_COLOR = "#9a9587";
+const PDR_GREEN = "#3d8a47", PDR_ORANGE = "#b3861c", PDR_RED = "#bb4326";
+function pdrColor(pdr) {
+  if (pdr >= 0.9) return PDR_GREEN;
+  if (pdr >= 0.7) return PDR_ORANGE;
+  return PDR_RED;
+}
+
+const SATELLITE_TILE_URL = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://tiles.openfreemap.org/styles/positron",
+  bounds: DATA.bbox,
+  fitBoundsOptions: { padding: DATA.padding_px, animate: false },
+  pitch: DATA.mode === "3d" ? 57 : 0,
+  bearing: DATA.mode === "3d" ? -16 : 0,
+  attributionControl: false,
+  interactive: false,
+  preserveDrawingBuffer: true,
+});
+
+function addMarkers() {
+  for (const n of DATA.nodes) {
+    const role = DATA.roles[n.id];
+    const pdr = DATA.pdr[n.id];
+    const color = pdr != null ? pdrColor(pdr) : (role ? TYPE_COLOR[role] : UNASSIGNED_COLOR);
+    const offline = DATA.offline.includes(n.id);
+    const border = offline ? "#bb4326" : color;
+    const el = document.createElement("div");
+    el.className = "node-label";
+    const shape = document.createElement("div");
+    shape.className = "node-shape";
+    if (role === "sink") {
+      shape.style.cssText = `width:18px;height:18px;border-radius:3px;background:${color};border:2px solid #fbfaf7;outline:1.5px solid ${border};`;
+    } else if (role === "relay") {
+      shape.style.cssText = `width:15px;height:15px;background:#fbfaf7;border:3px solid ${border};transform:rotate(45deg);`;
+    } else {
+      shape.style.cssText = `width:13px;height:13px;border-radius:50%;background:#fbfaf7;border:3px solid ${border};`;
+    }
+    el.appendChild(shape);
+    if (DATA.showLabels) {
+      const lbl = document.createElement("div");
+      lbl.className = "node-text";
+      lbl.textContent = n.id;
+      el.appendChild(lbl);
+    }
+    new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([n.lon, n.lat]).addTo(map);
+  }
+}
+
+function addLinks() {
+  const nodesById = Object.fromEntries(DATA.nodes.map((n) => [n.id, n]));
+  const features = DATA.links
+    .filter((l) => nodesById[l.child] && nodesById[l.parent])
+    .map((l) => ({
+      type: "Feature",
+      properties: { snr: l.sinr_db },
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [nodesById[l.child].lon, nodesById[l.child].lat],
+          [nodesById[l.parent].lon, nodesById[l.parent].lat],
+        ],
+      },
+    }));
+  map.addSource("sim-links", { type: "geojson", data: { type: "FeatureCollection", features } });
+  map.addLayer({
+    id: "sim-links",
+    type: "line",
+    source: "sim-links",
+    paint: {
+      "line-color": ["step", ["get", "snr"], "#bb4326", 8, "#b3861c", 16, "#3d8a47"],
+      "line-width": 2.5,
+      "line-dasharray": [1.4, 1.1],
+    },
+  });
+}
+
+map.on("load", () => {
+  map.addSource("satellite", {
+    type: "raster",
+    tiles: [SATELLITE_TILE_URL],
+    tileSize: 256,
+    maxzoom: 19,
+  });
+  map.addLayer({
+    id: "satellite",
+    type: "raster",
+    source: "satellite",
+    paint: { "raster-opacity": 1 },
+    layout: { visibility: DATA.mode === "satellite" ? "visible" : "none" },
+  });
+
+  if (DATA.mode === "3d" && DATA.buildings && DATA.buildings.length > 0) {
+    map.addSource("own-buildings", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: DATA.buildings.map((b) => ({
+          type: "Feature",
+          properties: { height: b.height_m },
+          geometry: { type: "Polygon", coordinates: [b.footprint] },
+        })),
+      },
+    });
+    map.addLayer({
+      id: "own-buildings",
+      type: "fill-extrusion",
+      source: "own-buildings",
+      paint: {
+        "fill-extrusion-color": "#dedacf",
+        "fill-extrusion-height": ["get", "height"],
+        "fill-extrusion-base": 0,
+        "fill-extrusion-opacity": 0.9,
+      },
+    });
+  }
+
+  addLinks();
+  addMarkers();
+
+  map.once("idle", () => {
+    // Give marker DOM layout / tile paints one more frame to settle.
+    requestAnimationFrame(() => requestAnimationFrame(() => { window.__reportReady = true; }));
+  });
+});
+</script>
+</body>
+</html>

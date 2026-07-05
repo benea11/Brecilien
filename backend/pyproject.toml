@@ -1,0 +1,24 @@
+[project]
+name = "dect-nrplus-planner-backend"
+version = "0.1.0"
+description = "Physics-grounded propagation/PHY/HARQ backend for the DECT NR+ outdoor planner"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "numpy>=1.26",
+  "scipy>=1.13",
+  "shapely>=2.0",
+  "pyproj>=3.6",
+  "httpx>=0.27",
+  "pydantic>=2.7",
+  "sse-starlette>=2.1",
+  "playwright>=1.45",
+  "reportlab>=4.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
