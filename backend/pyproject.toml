@@ -14,7 +14,6 @@ dependencies = [
   "pydantic>=2.7",
   "sse-starlette>=2.1",
   "playwright>=1.45",
-  "reportlab>=4.2",
 ]
 
 [project.optional-dependencies]

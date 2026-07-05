@@ -86,6 +86,27 @@ class MapRenderer:
         finally:
             page.close()
 
+    def render_pdf(self, html: str, header_html: str, footer_html: str) -> bytes:
+        """Prints a full report HTML document to a paginated PDF, reusing the
+        same Chromium instance as the map screenshots. Header/footer templates
+        are rendered by Playwright in their own isolated context (not the
+        page's own stylesheet), so they're passed as separate, self-contained
+        snippets rather than <head>/<style> slots inside `html`."""
+        page = self._browser.new_page()
+        try:
+            page.set_content(html, wait_until="load")
+            page.evaluate("document.fonts.ready")
+            return page.pdf(
+                format="A4",
+                margin={"top": "0.7in", "bottom": "0.7in", "left": "0.7in", "right": "0.7in"},
+                print_background=True,
+                display_header_footer=True,
+                header_template=header_html,
+                footer_template=footer_html,
+            )
+        finally:
+            page.close()
+
     def close(self) -> None:
         self._browser.close()
         self._pw.stop()
