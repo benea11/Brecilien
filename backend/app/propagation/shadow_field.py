@@ -35,6 +35,11 @@ CORRELATION_DISTANCE_M = {
     ("logd", False): 20.0,
 }
 
+# Caps the per-axis grid resolution (see build_shadow_field): at 2048, each
+# field's FFT buffers (several same-shape complex128/float64 arrays) stay in
+# the ~100-200 MB range instead of growing unbounded with project extent.
+MAX_GRID_N = 2048
+
 
 def _spectral_synthesis_field(
     n: int, cell_m: float, corr_m: float, seed: int
@@ -97,6 +102,18 @@ def build_shadow_field(
     n = max(32, int(2 * extent_m / cell_m))
     # round up to a size FFT handles efficiently
     n = 1 << (n - 1).bit_length()
+    if n > MAX_GRID_N:
+        # Unlike sim/coverage.py's heatmap grid (see its MAX_GRID_CELLS_PER_AXIS),
+        # nothing here previously bounded grid size against project extent -- a
+        # project spanning tens of km (exactly what auto_connect's multi-sink
+        # rescue is for: "two suburbs too far apart for any relay chain") drives
+        # n, and therefore the O(n^2) FFT buffers below, high enough to exhaust
+        # several GB of RAM and get the process OOM-killed. Coarsen cell_m
+        # instead of growing n further once n hits this cap, so the field still
+        # spans the full extent at a lower (but still FFT-cheap) resolution
+        # rather than blowing up memory.
+        cell_m = 2.0 * extent_m / MAX_GRID_N
+        n = MAX_GRID_N
     origin = -(n * cell_m) / 2.0
     corr_los = CORRELATION_DISTANCE_M.get((model, True), 30.0)
     corr_nlos = CORRELATION_DISTANCE_M.get((model, False), 40.0)
